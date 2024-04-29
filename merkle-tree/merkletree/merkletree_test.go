@@ -87,8 +87,8 @@ func TestMerkleTree(t *testing.T) {
 
 		}
 	}
-	for _, ele := range data {
-		tr.DeleteNode(ele)
+	for i := 5; i <= 5000; i++ {
+		tr.DeleteNode(data[i])
 	}
 	key = tr.GetNode(sel)
 	proof = tr.GetProof(sel)
@@ -98,6 +98,20 @@ func TestMerkleTree(t *testing.T) {
 	for k, ele := range tr.Root() {
 		if key[k] != ele {
 			panic("something wrong: multiple delete node")
+
+		}
+	}
+	for i := 5001; i <= 7000; i++ {
+		tr.UpdateNode(data[i], generateRandomBytes(100))
+	}
+	key = tr.GetNode(sel)
+	proof = tr.GetProof(sel)
+	for _, ele := range proof {
+		key = util.ConcatHash(key, ele)
+	}
+	for k, ele := range tr.Root() {
+		if key[k] != ele {
+			panic("something wrong: multiple update node")
 
 		}
 	}

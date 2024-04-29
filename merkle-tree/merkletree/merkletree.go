@@ -115,8 +115,10 @@ func (tr *MerkleTreeImpl) NewNode(content []byte) {
 		tr.size++
 		pos = tr.size*2 - 1
 		tr.db.Put([]byte("size"), util.Int2Byte(tr.size))
-		tr.root = (1 << util.Log2(pos)) // when size is full
-
+		tr.root = (1 << util.Log2(tr.size)) // when size is full
+		if tr.root < tr.size {
+			tr.root <<= 1
+		}
 		tr.db.Put([]byte("root"), util.Int2Byte(tr.root))
 	} else {
 		pos = tr.delq.Pop().(uint32)
