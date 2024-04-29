@@ -115,5 +115,11 @@ func TestMerkleTree(t *testing.T) {
 
 		}
 	}
+	for i := 5; i <= 7000; i++ {
+		if tr.Exist(data[i]) {
+			panic("something wrong: something is still there")
+		}
+	}
+
 	println("all done")
 }

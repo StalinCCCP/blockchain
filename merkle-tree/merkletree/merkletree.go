@@ -22,6 +22,7 @@ type MerkleTreeImpl struct {
 	delq *util.PriorityQueue[uint32]
 }
 
+// 使用指定的数据库目录，创建一颗空树
 func NewMerkleTreeImpl(storage_path string) *MerkleTreeImpl {
 	tr := &MerkleTreeImpl{
 		db:   *kvstore.NewLevelDB(storage_path),
@@ -35,6 +36,8 @@ func NewMerkleTreeImpl(storage_path string) *MerkleTreeImpl {
 	tr.db.Put([]byte("root"), util.Int2Byte(tr.size))
 	return tr
 }
+
+// 从指定的数据库目录中反序列化出一棵树
 func InitFromLevelDB(storage_path string) *MerkleTreeImpl {
 	db := kvstore.NewLevelDB(storage_path)
 	delq := util.NewPriorityQueue(func(a, b uint32) bool {
@@ -55,6 +58,8 @@ func InitFromLevelDB(storage_path string) *MerkleTreeImpl {
 	}
 	return tr
 }
+
+// 传入内容 得到树中对应的节点哈希值
 func (tr MerkleTreeImpl) GetNode(content []byte) []byte {
 	key := hash.Sha3Slice256(content)
 	pos, _ := tr.db.Get(key)
@@ -62,25 +67,29 @@ func (tr MerkleTreeImpl) GetNode(content []byte) []byte {
 	return key
 }
 
+// 得到根节点的哈希值
 func (tr MerkleTreeImpl) Root() []byte {
 	// TODO
 	pos, _ := tr.db.Get([]byte("root"))
 	hash, _ := tr.db.Get(pos)
 	return hash
 }
+
+// 增更删共用的子过程
+// 自下而上的处理每个节点
+// 填入节点在本层的下标和层级号 fa<<log则得到总下标
 func (tr *MerkleTreeImpl) updateSubproc(fa uint32, log int) {
-	//buf := util.Int2Byte(sib)
-	//var key []byte
+	//分别判断左、右节点是否存在
 	hasl, _ := tr.db.Has(util.Int2Byte(util.Fa2Lson(fa) << (log - 1)))
 	hasr, _ := tr.db.Has(util.Int2Byte(util.Fa2Rson(fa) << (log - 1)))
-	if !(hasl || hasr) {
+	if !(hasl || hasr) { //如果都不存在，说明此时是删除函数的调用，而本节点不存在任何儿子，因此删除本节点
 		buf := util.Int2Byte(fa << log)
 		key, _ := tr.db.Get(buf)
 		tr.db.Delete(buf)
 		tr.db.Delete(key)
 		key = util.ConcatHash(key, buf)
 		tr.db.Delete(key)
-	} else {
+	} else { //否则重新根据子节点的hash值，重新计算本节点的哈希值
 		key := make([]byte, 0)
 		if hasl {
 			key, _ = tr.db.Get(util.Int2Byte(util.Fa2Lson(fa) << (log - 1)))
@@ -96,9 +105,8 @@ func (tr *MerkleTreeImpl) updateSubproc(fa uint32, log int) {
 			}
 		}
 		key = hash.Sha3Slice256(key)
-		//key = hash.Sha3Slice256(key)
 		buf := util.Int2Byte(fa << log)
-		if has, _ := tr.db.Has(buf); has {
+		if has, _ := tr.db.Has(buf); has { //如有需要将自动构造新的节点
 			dkey, _ := tr.db.Get(buf)
 			tr.db.Delete(dkey)
 		}
@@ -106,11 +114,13 @@ func (tr *MerkleTreeImpl) updateSubproc(fa uint32, log int) {
 		tr.db.Put(buf, key)
 	}
 }
+
+// 根据内容新建节点
 func (tr *MerkleTreeImpl) NewNode(content []byte) {
 
 	var pos uint32
 	var buf []byte
-
+	//首先检查删除队列中是否存在可用的节点 否则树容量扩展 并使用新节点
 	if tr.delq.Empty() {
 		tr.size++
 		pos = tr.size*2 - 1
@@ -131,7 +141,7 @@ func (tr *MerkleTreeImpl) NewNode(content []byte) {
 	tr.db.Put(key, content)
 	cur := pos
 	log := 0
-	for cur<<log != tr.root {
+	for cur<<log != tr.root { //自下而上逐级递归
 		log++
 		if util.IsLson(cur) {
 			cur = util.Lson2Fa(cur)
@@ -142,13 +152,14 @@ func (tr *MerkleTreeImpl) NewNode(content []byte) {
 	}
 }
 
+// 检查树中是否存在对应的节点
 func (tr MerkleTreeImpl) Exist(content []byte) bool {
-	// TODO
 	key := hash.Sha3Slice256(content)
 	has, _ := tr.db.Has(key)
 	return has
 }
 
+// 根据内容删除节点
 func (tr *MerkleTreeImpl) DeleteNode(content []byte) {
 	key := hash.Sha3Slice256(content)
 	pos, _ := tr.db.Get(key)
@@ -170,6 +181,7 @@ func (tr *MerkleTreeImpl) DeleteNode(content []byte) {
 	}
 	log = int(util.Lowcnt(tr.root))
 	cur = tr.root >> log
+	//如有需要则重新计算根节点 从原来的根节点逐步下降 删除只有一个孩子的节点 直到当前节点有两个孩子
 	for {
 		hasl, _ := tr.db.Has(util.Int2Byte(util.Fa2Lson(cur) << (log - 1)))
 		hasr, _ := tr.db.Has(util.Int2Byte(util.Fa2Rson(cur) << (log - 1)))
@@ -188,11 +200,15 @@ func (tr *MerkleTreeImpl) DeleteNode(content []byte) {
 			cur = util.Fa2Rson(cur)
 		}
 		log--
+		if log == 0 { //不删除叶子结点
+			break
+		}
 		tr.root = cur << log
 	}
 
 }
 
+// 更新节点内容
 func (tr *MerkleTreeImpl) UpdateNode(old, new []byte) {
 	key := hash.Sha3Slice256(old)
 	pos, _ := tr.db.Get(key)
@@ -217,6 +233,7 @@ func (tr *MerkleTreeImpl) UpdateNode(old, new []byte) {
 	}
 }
 
+// 求取节点的证明以证明根节点正确性
 func (tr MerkleTreeImpl) GetProof(content []byte) [][]byte {
 	var ret [][]byte
 	key := hash.Sha3Slice256(content)
